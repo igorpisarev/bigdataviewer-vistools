@@ -1,6 +1,9 @@
 package bdv.writecache;
 
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.LinkedBlockingQueue;
 
 import bdv.cache.CacheHints;
 import bdv.cache.revised.Cache;
@@ -57,9 +60,11 @@ public class MyCellCache< A extends VolatileAccess > implements CellCache< A >
 	public interface BlockIO< A >
 	{
 		A load( long index );
+
+		void save( long index, A data );
 	}
 
-	private final BlockIO< A > io;
+	private final IoSync< A > io;
 
 	private final Cache< Key, VolatileCell< A > > cache;
 
@@ -70,7 +75,7 @@ public class MyCellCache< A extends VolatileAccess > implements CellCache< A >
 	 */
 	public MyCellCache( final BlockIO< A > io )
 	{
-		this.io = io;
+		this.io = new IoSync<>( io );
 		cache = new SoftRefCache<>();
 	}
 
@@ -89,12 +94,86 @@ public class MyCellCache< A extends VolatileAccess > implements CellCache< A >
 		return cache.getIfPresent( new Key( index ) );
 	}
 
+
+	public static class IoSync< A extends VolatileAccess >
+	{
+		private final BlockIO< A > io;
+
+		private final ConcurrentHashMap< Long, Entry > writing;
+
+		private final BlockingQueue< Long > writeQueue;
+
+		class Entry
+		{
+			final A data;
+
+			Entry( final A data )
+			{
+				this.data = data;
+			}
+		}
+
+		public IoSync( final BlockIO< A > io )
+		{
+			this.io = io;
+			writing = new ConcurrentHashMap<>();
+			writeQueue = new LinkedBlockingQueue<>();
+
+			new Thread( () -> {
+				while ( true )
+				{
+					try
+					{
+						final Long key = writeQueue.take();
+						final Entry entry = writing.get( key );
+						if ( entry != null )
+						{
+							System.out.println( String.format( "saving %d", key ) );
+							io.save( key, entry.data );
+							writing.remove( key, entry );
+						}
+					}
+					catch ( final InterruptedException e )
+					{
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}
+				}
+
+			} ).start();
+		}
+
+		public VolatileCell< A > load( final long index, final int[] cellDims, final long[] cellMin )
+		{
+			final Entry entry = writing.get( index );
+			final A data = ( entry != null ) ? entry.data : io.load( index );
+			return new VolatileCell<>( cellDims, cellMin, data );
+		}
+
+		public void save( final long index, final A data )
+		{
+			writing.put( index, new Entry( data ) );
+			try
+			{
+				writeQueue.put( index );
+			}
+			catch ( final InterruptedException e )
+			{
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+		}
+	}
+
+
 	@Override
 	public VolatileCell< A > load( final long index, final int[] cellDims, final long[] cellMin )
 	{
 		try
 		{
-			return cache.get( new Key( index ), () -> new VolatileCell<>( cellDims, cellMin, io.load( index ) ) );
+			return cache.get( new Key( index ),
+					() -> io.load( index, cellDims, cellMin ),
+					( k, v ) -> io.save( k.index, v.getData() ) );
 		}
 		catch ( final ExecutionException e )
 		{

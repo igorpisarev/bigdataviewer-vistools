@@ -1,5 +1,14 @@
 package bdv.writecache;
 
+import java.io.File;
+import java.io.IOException;
+import java.io.RandomAccessFile;
+import java.nio.IntBuffer;
+import java.nio.MappedByteBuffer;
+import java.nio.channels.FileChannel.MapMode;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.Random;
 
@@ -28,9 +37,29 @@ import net.imglib2.view.Views;
 
 public class Playground
 {
-	public static void main( final String[] args )
+	public static boolean deleteDirectory( final File dir )
+	{
+		if ( dir.isDirectory() )
+		{
+			final File[] children = dir.listFiles();
+			for ( int i = 0; i < children.length; i++ )
+			{
+				final boolean success = deleteDirectory( children[ i ] );
+				if ( !success )
+					return false;
+			}
+		}
+		// either file or an empty directory
+		return dir.delete();
+	}
+
+	public static void main( final String[] args ) throws IOException
 	{
 		System.setProperty( "apple.laf.useScreenMenuBar", "true" );
+
+		final Path blockcache = Paths.get( "/home/pietzscht/Desktop/blockcache/" );
+//		deleteDirectory( blockcache.toFile() );
+		Files.createDirectories( blockcache );
 
 		final long[] dimensions = new long[] { 640, 640, 640 };
 		final int[] cellDimensions = new int[] { 32, 32, 32 };
@@ -41,12 +70,57 @@ public class Playground
 
 			private final Random random = new Random();
 
+			private String blockname( final long index )
+			{
+				return String.format( "%s/%d", blockcache, index );
+			}
+
+			private Path blockpath( final long index )
+			{
+				return Paths.get( blockname( index ) );
+			}
+
 			@Override
 			public VolatileIntArray load( final long index )
 			{
 				final VolatileIntArray a = new VolatileIntArray( blocksize, true );
-				Arrays.fill( a.getCurrentStorageArray(), random.nextInt() & 0xFF0000FF );
+				try
+				{
+					if ( Files.exists( blockpath( index ) ) )
+					{
+						System.out.println( "reading " + blockname( index ) );
+						final RandomAccessFile mmFile = new RandomAccessFile( blockname( index ), "rw" );
+						final MappedByteBuffer in = mmFile.getChannel().map( MapMode.READ_ONLY, 0, blocksize * 4 );
+						IntBuffer.wrap( a.getCurrentStorageArray() ).put( in.asIntBuffer() );
+						mmFile.close();
+					}
+					else
+						Arrays.fill( a.getCurrentStorageArray(), random.nextInt() & 0xFF0000FF );
+				}
+				catch ( final IOException e )
+				{
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
 				return a;
+			}
+
+			@Override
+			public void save( final long index, final VolatileIntArray data )
+			{
+				try
+				{
+					System.out.println( "writing " + blockname( index ) );
+					final RandomAccessFile mmFile = new RandomAccessFile( blockname( index ), "rw" );
+					final MappedByteBuffer out = mmFile.getChannel().map( MapMode.READ_WRITE, 0, blocksize * 4 );
+					out.asIntBuffer().put( IntBuffer.wrap( data.getCurrentStorageArray() ) );
+					mmFile.close();
+				}
+				catch ( final IOException e )
+				{
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
 			}
 		};
 
