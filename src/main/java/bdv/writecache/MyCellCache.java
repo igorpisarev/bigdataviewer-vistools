@@ -2,61 +2,19 @@ package bdv.writecache;
 
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.LinkedBlockingQueue;
 
-import bdv.cache.CacheHints;
-import bdv.cache.revised.Cache;
-import bdv.cache.revised.SoftRefCache;
-import bdv.img.cache.VolatileCell;
-import bdv.img.cache.VolatileImgCells.CellCache;
-import net.imglib2.img.basictypeaccess.volatiles.VolatileAccess;
+import bdv.img.gencache.CachedCellImg;
+import net.imglib2.cache.CacheLoader;
+import net.imglib2.cache.ListenableCache;
+import net.imglib2.cache.RemovalListener;
+import net.imglib2.cache.ref.SoftRefListenableCache;
+import net.imglib2.img.cell.Cell;
+import net.imglib2.img.cell.CellGrid;
+import net.imglib2.type.NativeType;
 
-public class MyCellCache< A extends VolatileAccess > implements CellCache< A >
+public class MyCellCache< A >
 {
-	/**
-	 * Key for a cell identified by timepoint, setup, level, and index
-	 * (flattened spatial coordinate).
-	 */
-	public static class Key
-	{
-		private final long index;
-
-		/**
-		 * Create a Key for the specified cell.
-		 *
-		 * @param index
-		 *            index of the cell (flattened spatial coordinate of the
-		 *            cell)
-		 */
-		public Key( final long index )
-		{
-			this.index = index;
-
-			final int value = Long.hashCode( index );
-			hashcode = value;
-		}
-
-		@Override
-		public boolean equals( final Object other )
-		{
-			if ( this == other )
-				return true;
-			if ( !( other instanceof MyCellCache.Key ) )
-				return false;
-			final Key that = ( Key ) other;
-			return ( this.index == that.index );
-		}
-
-		final int hashcode;
-
-		@Override
-		public int hashCode()
-		{
-			return hashcode;
-		}
-	}
-
 	public interface BlockIO< A >
 	{
 		A load( long index );
@@ -64,54 +22,13 @@ public class MyCellCache< A extends VolatileAccess > implements CellCache< A >
 		void save( long index, A data );
 	}
 
-	private final IoSync< A > io;
-
-	private final Cache< Key, VolatileCell< A > > cache;
-
-	/**
-	 * @param maxNumLevels
-	 *            the highest occurring mipmap level plus 1.
-	 * @param numFetcherThreads
-	 */
-	public MyCellCache( final BlockIO< A > io )
-	{
-		this.io = new IoSync<>( io );
-		cache = new SoftRefCache<>();
-	}
-
-	/**
-	 * Remove all references to loaded data as well as all enqueued requests
-	 * from the cache.
-	 */
-	public void clearCache()
-	{
-		cache.invalidateAll();
-	}
-
-	@Override
-	public VolatileCell< A > get( final long index )
-	{
-		return cache.getIfPresent( new Key( index ) );
-	}
-
-
-	public static class IoSync< A extends VolatileAccess >
+	public static class IoSync< A >
 	{
 		private final BlockIO< A > io;
 
-		private final ConcurrentHashMap< Long, Entry > writing;
+		private final ConcurrentHashMap< Long, A > writing;
 
 		private final BlockingQueue< Long > writeQueue;
-
-		class Entry
-		{
-			final A data;
-
-			Entry( final A data )
-			{
-				this.data = data;
-			}
-		}
 
 		public IoSync( final BlockIO< A > io )
 		{
@@ -125,12 +42,12 @@ public class MyCellCache< A extends VolatileAccess > implements CellCache< A >
 					try
 					{
 						final Long key = writeQueue.take();
-						final Entry entry = writing.get( key );
-						if ( entry != null )
+						final A data = writing.get( key );
+						if ( data != null )
 						{
 							System.out.println( String.format( "saving %d", key ) );
-							io.save( key, entry.data );
-							writing.remove( key, entry );
+							io.save( key, data );
+							writing.remove( key, data );
 						}
 					}
 					catch ( final InterruptedException e )
@@ -143,16 +60,17 @@ public class MyCellCache< A extends VolatileAccess > implements CellCache< A >
 			} ).start();
 		}
 
-		public VolatileCell< A > load( final long index, final int[] cellDims, final long[] cellMin )
+		public A load( final long index, final int[] cellDims, final long[] cellMin )
 		{
-			final Entry entry = writing.get( index );
-			final A data = ( entry != null ) ? entry.data : io.load( index );
-			return new VolatileCell<>( cellDims, cellMin, data );
+			A data = writing.get( index );
+			if ( data == null )
+				data = io.load( index );
+			return data;
 		}
 
 		public void save( final long index, final A data )
 		{
-			writing.put( index, new Entry( data ) );
+			writing.put( index, data );
 			try
 			{
 				writeQueue.put( index );
@@ -165,27 +83,89 @@ public class MyCellCache< A extends VolatileAccess > implements CellCache< A >
 		}
 	}
 
+	/*
+	 *
+	 * ===========================================================
+	 *
+	 */
 
-	@Override
-	public VolatileCell< A > load( final long index, final int[] cellDims, final long[] cellMin )
+	private final IoSync< A > io;
+
+	private final ListenableCache< Long, Cell< A > > cache;
+
+	/**
+	 * @param maxNumLevels
+	 *            the highest occurring mipmap level plus 1.
+	 * @param numFetcherThreads
+	 */
+	public MyCellCache( final BlockIO< A > io )
 	{
-		try
-		{
-			return cache.get( new Key( index ),
-					() -> io.load( index, cellDims, cellMin ),
-					( k, v ) -> io.save( k.index, v.getData() ) );
-		}
-		catch ( final ExecutionException e )
-		{
-			e.printStackTrace();
-			return null;
-		}
+		this.io = new IoSync<>( io );
+		cache = new SoftRefListenableCache<>();
 	}
 
-	@Override
-	public void setCacheHints( final CacheHints cacheHints )
+	/**
+	 * Remove all references to loaded data as well as all enqueued requests
+	 * from the cache.
+	 */
+	public void clearCache()
 	{
-		// TODO Auto-generated method stub
+		cache.invalidateAll();
+	}
 
+//	@Override
+//	public VolatileCell< A > load( final long index, final int[] cellDims, final long[] cellMin )
+//	{
+//		try
+//		{
+//			return cache.get( new Key( index ),
+//					() -> io.load( index, cellDims, cellMin ),
+//					( k, v ) -> io.save( k.index, v.getData() ) );
+//		}
+//		catch ( final ExecutionException e )
+//		{
+//			e.printStackTrace();
+//			return null;
+//		}
+//	}
+
+	public < T extends NativeType< T > > CachedCellImg< T, A > getImage( final CellGrid grid, final T type )
+	{
+		final CacheLoader< ? super Long, ? extends Cell< A > > loader = new CacheLoader< Long, Cell<A> >()
+		{
+			@Override
+			public Cell< A > get( final Long index ) throws Exception
+			{
+				final int n = grid.numDimensions();
+				final long[] cellMin = new long[ n ];
+				final int[] cellDims = new int[ n ];
+				grid.getCellDimensions( index, cellMin, cellDims );
+				return new Cell<>( cellDims, cellMin, io.load( index, cellDims, cellMin ) );
+			}
+		};
+
+		final RemovalListener< ? super Long, ? super Cell< A > > remover = new RemovalListener< Long, Cell< A > >()
+		{
+			@Override
+			public void onRemoval( final Long key, final Cell< A > value )
+			{
+				io.save( key, value.getData() );
+			}
+		};
+
+		final CachedCellImg< T, A > img = new CachedCellImg<>( grid, type, ( i ) -> {
+			try
+			{
+				return cache.get( i, loader, remover );
+			}
+			catch ( final Exception e )
+			{
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+			return null;
+		} );
+
+		return img;
 	}
 }

@@ -16,9 +16,6 @@ import org.scijava.ui.behaviour.DragBehaviour;
 import org.scijava.ui.behaviour.io.InputTriggerConfig;
 import org.scijava.ui.behaviour.util.Behaviours;
 
-import bdv.img.cache.CachedCellImg;
-import bdv.img.cache.VolatileImgCells;
-import bdv.img.cache.VolatileImgCells.CellCache;
 import bdv.util.Bdv;
 import bdv.util.BdvFunctions;
 import bdv.util.BdvStackSource;
@@ -27,11 +24,12 @@ import bdv.writecache.MyCellCache.BlockIO;
 import net.imglib2.RandomAccess;
 import net.imglib2.algorithm.neighborhood.HyperSphereShape;
 import net.imglib2.algorithm.neighborhood.Neighborhood;
+import net.imglib2.img.Img;
 import net.imglib2.img.array.ArrayImgs;
-import net.imglib2.img.basictypeaccess.volatiles.array.VolatileIntArray;
+import net.imglib2.img.basictypeaccess.array.IntArray;
+import net.imglib2.img.cell.CellGrid;
 import net.imglib2.position.transform.Round;
 import net.imglib2.type.numeric.ARGBType;
-import net.imglib2.util.Fraction;
 import net.imglib2.util.Intervals;
 import net.imglib2.view.Views;
 
@@ -57,14 +55,14 @@ public class Playground
 	{
 		System.setProperty( "apple.laf.useScreenMenuBar", "true" );
 
-		final Path blockcache = Paths.get( "/home/pietzscht/Desktop/blockcache/" );
+		final Path blockcache = Paths.get( "/Users/pietzsch/Desktop/blockcache/" );
 //		deleteDirectory( blockcache.toFile() );
 		Files.createDirectories( blockcache );
 
 		final long[] dimensions = new long[] { 640, 640, 640 };
 		final int[] cellDimensions = new int[] { 32, 32, 32 };
 
-		final BlockIO< VolatileIntArray > io = new BlockIO< VolatileIntArray >()
+		final BlockIO< IntArray > io = new BlockIO< IntArray >()
 		{
 			private final int blocksize = ( int ) Intervals.numElements( cellDimensions );
 
@@ -81,9 +79,9 @@ public class Playground
 			}
 
 			@Override
-			public VolatileIntArray load( final long index )
+			public IntArray load( final long index )
 			{
-				final VolatileIntArray a = new VolatileIntArray( blocksize, true );
+				final IntArray a = new IntArray( blocksize );
 				try
 				{
 					if ( Files.exists( blockpath( index ) ) )
@@ -106,7 +104,7 @@ public class Playground
 			}
 
 			@Override
-			public void save( final long index, final VolatileIntArray data )
+			public void save( final long index, final IntArray data )
 			{
 				try
 				{
@@ -124,11 +122,7 @@ public class Playground
 			}
 		};
 
-		final CellCache< VolatileIntArray > c = new MyCellCache<>( io );
-		final VolatileImgCells< VolatileIntArray > cells = new VolatileImgCells<>( c, new Fraction(), dimensions, cellDimensions );
-		final CachedCellImg< ARGBType, VolatileIntArray > img = new CachedCellImg<>( cells );
-		final ARGBType linkedType = new ARGBType( img );
-		img.setLinkedType( linkedType );
+		final Img< ARGBType > img = new MyCellCache<>( io ).getImage( new CellGrid( dimensions, cellDimensions ), new ARGBType() );
 
 		final BdvStackSource< ARGBType > dummy = BdvFunctions.show( ArrayImgs.argbs( 10, 10, 10 ), "Dummy" );
 		final Bdv bdv = BdvFunctions.show( img, "Cached", Bdv.options().addTo( dummy ) );
