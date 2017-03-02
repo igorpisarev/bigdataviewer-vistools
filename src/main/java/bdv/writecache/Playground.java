@@ -2,10 +2,6 @@ package bdv.writecache;
 
 import java.io.File;
 import java.io.IOException;
-import java.io.RandomAccessFile;
-import java.nio.IntBuffer;
-import java.nio.MappedByteBuffer;
-import java.nio.channels.FileChannel.MapMode;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -24,16 +20,15 @@ import bdv.viewer.ViewerPanel;
 import net.imglib2.RandomAccess;
 import net.imglib2.algorithm.neighborhood.HyperSphereShape;
 import net.imglib2.algorithm.neighborhood.Neighborhood;
+import net.imglib2.cache.CacheLoader;
 import net.imglib2.cache.IoSync;
 import net.imglib2.cache.UncheckedLoadingCache;
 import net.imglib2.cache.ref.SoftRefListenableCache;
-import net.imglib2.img.Img;
 import net.imglib2.img.array.ArrayImgs;
 import net.imglib2.img.basictypeaccess.array.IntArray;
 import net.imglib2.img.cell.Cell;
 import net.imglib2.img.cell.CellGrid;
 import net.imglib2.position.transform.Round;
-import net.imglib2.type.NativeType;
 import net.imglib2.type.numeric.ARGBType;
 import net.imglib2.util.Intervals;
 import net.imglib2.view.Views;
@@ -56,86 +51,30 @@ public class Playground
 		return dir.delete();
 	}
 
-	private final Random random = new Random();
-
-	private final Path blockcache;
-
-	private final CellGrid grid;
-
-	Playground( final Path blockcache, final CellGrid grid )
+	public static class RandomLoader implements CacheLoader< Long, Cell< IntArray > >
 	{
-		this.blockcache = blockcache;
-		this.grid = grid;
-	}
+		private final Random random = new Random();
 
-	private String blockname( final long index )
-	{
-		return String.format( "%s/%d", blockcache, index );
-	}
+		private final CellGrid grid;
 
-	private Path blockpath( final long index )
-	{
-		return Paths.get( blockname( index ) );
-	}
-
-	public Cell< IntArray > load( final long index )
-	{
-		final long[] cellMin = new long[ grid.numDimensions() ];
-		final int[] cellDims = new int[ grid.numDimensions() ];
-		grid.getCellDimensions( index, cellMin, cellDims );
-		final int blocksize = ( int ) Intervals.numElements( cellDims );
-		final IntArray array = new IntArray( blocksize );
-		try
+		public RandomLoader( final CellGrid grid )
 		{
-			if ( Files.exists( blockpath( index ) ) )
-			{
-				System.out.println( "reading " + blockname( index ) );
-				final RandomAccessFile mmFile = new RandomAccessFile( blockname( index ), "rw" );
-				final MappedByteBuffer in = mmFile.getChannel().map( MapMode.READ_ONLY, 0, blocksize * 4 );
-				IntBuffer.wrap( array.getCurrentStorageArray() ).put( in.asIntBuffer() );
-				mmFile.close();
-			}
-			else
-				Arrays.fill( array.getCurrentStorageArray(), random.nextInt() & 0xFF0000FF );
+			this.grid = grid;
 		}
-		catch ( final IOException e )
-		{
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
-		return new Cell<>( cellDims, cellMin, array );
-	}
 
-	public void save( final long index, final Cell< IntArray > cell )
-	{
-		try
+		@Override
+		public Cell< IntArray > get( final Long key ) throws Exception
 		{
-			System.out.println( "writing " + blockname( index ) );
-			final RandomAccessFile mmFile = new RandomAccessFile( blockname( index ), "rw" );
-			final int[] array = cell.getData().getCurrentStorageArray();
-			final MappedByteBuffer out = mmFile.getChannel().map(
-					MapMode.READ_WRITE, 0, array.length * 4 );
-			out.asIntBuffer().put( IntBuffer.wrap( array ) );
-			mmFile.close();
-		}
-		catch ( final IOException e )
-		{
-			// TODO Auto-generated catch block
-			e.printStackTrace();
+			final long index = key;
+			final long[] cellMin = new long[ grid.numDimensions() ];
+			final int[] cellDims = new int[ grid.numDimensions() ];
+			grid.getCellDimensions( index, cellMin, cellDims );
+			final int blocksize = ( int ) Intervals.numElements( cellDims );
+			final IntArray array = new IntArray( blocksize );
+			Arrays.fill( array.getCurrentStorageArray(), random.nextInt() & 0xFF0000FF );
+			return new Cell<>( cellDims, cellMin, array );
 		}
 	}
-
-	public < T extends NativeType< T > > CachedCellImg< T, IntArray > getImage( final T type )
-	{
-		final IoSync< Long, Cell< IntArray > > iosync = new IoSync<>( this::load, this::save );
-		final UncheckedLoadingCache< Long, Cell< IntArray > > cache = new SoftRefListenableCache< Long, Cell< IntArray > >()
-				.withRemovalListener( iosync )
-				.withLoader( iosync )
-				.unchecked();
-		final CachedCellImg< T, IntArray > img = new CachedCellImg<>( grid, type, i -> cache.get( i ) );
-		return img;
-	}
-
 
 	public static void main( final String[] args ) throws IOException
 	{
@@ -148,7 +87,21 @@ public class Playground
 		final long[] dimensions = new long[] { 640, 640, 640 };
 		final int[] cellDimensions = new int[] { 32, 32, 32 };
 		final CellGrid grid = new CellGrid( dimensions, cellDimensions );
-		final Img< ARGBType > img = new Playground( blockcache, grid ).getImage( new ARGBType() );
+
+		final ARGBType type = new ARGBType();
+
+		final DiskCellCache< IntArray > diskcache = new DiskCellCache<>(
+				blockcache,
+				grid,
+				new RandomLoader( grid ),
+				new DiskCellCache.IntArrayType(),
+				type );
+		final IoSync< Long, Cell< IntArray > > iosync = new IoSync<>( diskcache );
+		final UncheckedLoadingCache< Long, Cell< IntArray > > cache = new SoftRefListenableCache< Long, Cell< IntArray > >()
+				.withRemovalListener( iosync )
+				.withLoader( iosync )
+				.unchecked();
+		final CachedCellImg< ARGBType, IntArray > img = new CachedCellImg<>( grid, type, cache::get );
 
 		// Hack: add and remove dummy source to avoid that the initial transform shows a full slice.
 		final BdvStackSource< ARGBType > dummy = BdvFunctions.show( ArrayImgs.argbs( 10, 10, 10 ), "Dummy" );
