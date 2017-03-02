@@ -24,6 +24,7 @@ import bdv.viewer.ViewerPanel;
 import net.imglib2.RandomAccess;
 import net.imglib2.algorithm.neighborhood.HyperSphereShape;
 import net.imglib2.algorithm.neighborhood.Neighborhood;
+import net.imglib2.cache.IoSync;
 import net.imglib2.cache.UncheckedLoadingCache;
 import net.imglib2.cache.ref.SoftRefListenableCache;
 import net.imglib2.img.Img;
