@@ -12,7 +12,6 @@ import org.scijava.ui.behaviour.DragBehaviour;
 import org.scijava.ui.behaviour.io.InputTriggerConfig;
 import org.scijava.ui.behaviour.util.Behaviours;
 
-import bdv.img.gencache.CachedCellImg;
 import bdv.util.Bdv;
 import bdv.util.BdvFunctions;
 import bdv.util.BdvStackSource;
@@ -23,11 +22,15 @@ import net.imglib2.algorithm.neighborhood.Neighborhood;
 import net.imglib2.cache.CacheLoader;
 import net.imglib2.cache.IoSync;
 import net.imglib2.cache.UncheckedLoadingCache;
+import net.imglib2.cache.img.AccessIo;
+import net.imglib2.cache.img.DiskCellCache;
 import net.imglib2.cache.ref.SoftRefListenableCache;
+import net.imglib2.img.Img;
 import net.imglib2.img.array.ArrayImgs;
 import net.imglib2.img.basictypeaccess.array.IntArray;
 import net.imglib2.img.cell.Cell;
 import net.imglib2.img.cell.CellGrid;
+import net.imglib2.img.cell.LazyCellImg;
 import net.imglib2.position.transform.Round;
 import net.imglib2.type.numeric.ARGBType;
 import net.imglib2.util.Intervals;
@@ -76,12 +79,13 @@ public class Playground
 		}
 	}
 
+
 	public static void main( final String[] args ) throws IOException
 	{
 		System.setProperty( "apple.laf.useScreenMenuBar", "true" );
 
 		final Path blockcache = Paths.get( "/Users/pietzsch/Desktop/blockcache/" );
-//		deleteDirectory( blockcache.toFile() );
+		deleteDirectory( blockcache.toFile() );
 		Files.createDirectories( blockcache );
 
 		final long[] dimensions = new long[] { 640, 640, 640 };
@@ -89,19 +93,19 @@ public class Playground
 		final CellGrid grid = new CellGrid( dimensions, cellDimensions );
 
 		final ARGBType type = new ARGBType();
-
 		final DiskCellCache< IntArray > diskcache = new DiskCellCache<>(
 				blockcache,
 				grid,
+//				EmptyCells.get( grid, type ),
 				new RandomLoader( grid ),
-				new DiskCellCache.IntArrayType(),
-				type );
+				AccessIo.get( type ),
+				type.getEntitiesPerPixel() );
 		final IoSync< Long, Cell< IntArray > > iosync = new IoSync<>( diskcache );
 		final UncheckedLoadingCache< Long, Cell< IntArray > > cache = new SoftRefListenableCache< Long, Cell< IntArray > >()
 				.withRemovalListener( iosync )
 				.withLoader( iosync )
 				.unchecked();
-		final CachedCellImg< ARGBType, IntArray > img = new CachedCellImg<>( grid, type, cache::get );
+		final Img< ARGBType > img = new LazyCellImg<>( grid, type, cache::get );
 
 		// Hack: add and remove dummy source to avoid that the initial transform shows a full slice.
 		final BdvStackSource< ARGBType > dummy = BdvFunctions.show( ArrayImgs.argbs( 10, 10, 10 ), "Dummy" );
