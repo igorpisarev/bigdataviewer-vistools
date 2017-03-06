@@ -34,6 +34,7 @@
 
 package bdv.writecache.diskcached;
 
+import static net.imglib2.cache.img.AccessFlags.DIRTY;
 import static net.imglib2.cache.img.PrimitiveType.BYTE;
 import static net.imglib2.cache.img.PrimitiveType.CHAR;
 import static net.imglib2.cache.img.PrimitiveType.DOUBLE;
@@ -45,9 +46,11 @@ import static net.imglib2.cache.img.PrimitiveType.SHORT;
 import java.io.IOException;
 import java.nio.file.Path;
 
+import net.imglib2.Dirty;
 import net.imglib2.cache.IoSync;
 import net.imglib2.cache.UncheckedLoadingCache;
 import net.imglib2.cache.img.AccessIo;
+import net.imglib2.cache.img.DirtyDiskCellCache;
 import net.imglib2.cache.img.DiskCellCache;
 import net.imglib2.cache.img.EmptyCellCacheLoader;
 import net.imglib2.cache.img.PrimitiveType;
@@ -55,14 +58,14 @@ import net.imglib2.cache.ref.SoftRefListenableCache;
 import net.imglib2.exception.IncompatibleTypeException;
 import net.imglib2.img.ImgFactory;
 import net.imglib2.img.NativeImgFactory;
+import net.imglib2.img.basictypeaccess.ByteAccess;
+import net.imglib2.img.basictypeaccess.CharAccess;
+import net.imglib2.img.basictypeaccess.DoubleAccess;
+import net.imglib2.img.basictypeaccess.FloatAccess;
+import net.imglib2.img.basictypeaccess.IntAccess;
+import net.imglib2.img.basictypeaccess.LongAccess;
+import net.imglib2.img.basictypeaccess.ShortAccess;
 import net.imglib2.img.basictypeaccess.array.ArrayDataAccess;
-import net.imglib2.img.basictypeaccess.array.ByteArray;
-import net.imglib2.img.basictypeaccess.array.CharArray;
-import net.imglib2.img.basictypeaccess.array.DoubleArray;
-import net.imglib2.img.basictypeaccess.array.FloatArray;
-import net.imglib2.img.basictypeaccess.array.IntArray;
-import net.imglib2.img.basictypeaccess.array.LongArray;
-import net.imglib2.img.basictypeaccess.array.ShortArray;
 import net.imglib2.img.cell.Cell;
 import net.imglib2.img.cell.CellGrid;
 import net.imglib2.img.cell.CellImgFactory;
@@ -79,6 +82,8 @@ import net.imglib2.util.Fraction;
  */
 public class DiskCachedCellImgFactory< T extends NativeType< T > > extends NativeImgFactory< T >
 {
+	private final boolean dirtyAccesses;
+
 	private final int[] defaultCellDimensions;
 
 	public DiskCachedCellImgFactory()
@@ -88,6 +93,12 @@ public class DiskCachedCellImgFactory< T extends NativeType< T > > extends Nativ
 
 	public DiskCachedCellImgFactory( final int... cellDimensions )
 	{
+		this( true, cellDimensions );
+	}
+
+	public DiskCachedCellImgFactory( final boolean dirtyAccesses, final int... cellDimensions )
+	{
+		this.dirtyAccesses = dirtyAccesses;
 		defaultCellDimensions = cellDimensions.clone();
 		CellImgFactory.verifyDimensions( defaultCellDimensions );
 	}
@@ -99,45 +110,59 @@ public class DiskCachedCellImgFactory< T extends NativeType< T > > extends Nativ
 	}
 
 	@Override
-	public DiskCachedCellImg< T, ByteArray > createByteInstance( final long[] dimensions, final Fraction entitiesPerPixel )
+	public DiskCachedCellImg< T, ? extends ByteAccess > createByteInstance( final long[] dimensions, final Fraction entitiesPerPixel )
 	{
-		return createInstance( new ByteArray( 1 ), dimensions, entitiesPerPixel, BYTE );
+		return dirtyAccesses
+				? createDirtyInstance( dimensions, entitiesPerPixel, BYTE )
+				: createInstance( dimensions, entitiesPerPixel, BYTE );
 	}
 
 	@Override
-	public DiskCachedCellImg< T, CharArray > createCharInstance( final long[] dimensions, final Fraction entitiesPerPixel )
+	public DiskCachedCellImg< T, ? extends CharAccess > createCharInstance( final long[] dimensions, final Fraction entitiesPerPixel )
 	{
-		return createInstance( new CharArray( 1 ), dimensions, entitiesPerPixel, CHAR );
+		return dirtyAccesses
+				? createDirtyInstance( dimensions, entitiesPerPixel, CHAR )
+				: createInstance( dimensions, entitiesPerPixel, CHAR );
 	}
 
 	@Override
-	public DiskCachedCellImg< T, ShortArray > createShortInstance( final long[] dimensions, final Fraction entitiesPerPixel )
+	public DiskCachedCellImg< T, ? extends ShortAccess > createShortInstance( final long[] dimensions, final Fraction entitiesPerPixel )
 	{
-		return createInstance( new ShortArray( 1 ), dimensions, entitiesPerPixel, SHORT );
+		return dirtyAccesses
+				? createDirtyInstance( dimensions, entitiesPerPixel, SHORT )
+				: createInstance( dimensions, entitiesPerPixel, SHORT );
 	}
 
 	@Override
-	public DiskCachedCellImg< T, IntArray > createIntInstance( final long[] dimensions, final Fraction entitiesPerPixel )
+	public DiskCachedCellImg< T, ? extends IntAccess > createIntInstance( final long[] dimensions, final Fraction entitiesPerPixel )
 	{
-		return createInstance( new IntArray( 1 ), dimensions, entitiesPerPixel, INT );
+		return dirtyAccesses
+				? createDirtyInstance( dimensions, entitiesPerPixel, INT )
+				: createInstance( dimensions, entitiesPerPixel, INT );
 	}
 
 	@Override
-	public DiskCachedCellImg< T, LongArray > createLongInstance( final long[] dimensions, final Fraction entitiesPerPixel )
+	public DiskCachedCellImg< T, ? extends LongAccess > createLongInstance( final long[] dimensions, final Fraction entitiesPerPixel )
 	{
-		return createInstance( new LongArray( 1 ), dimensions, entitiesPerPixel, LONG );
+		return dirtyAccesses
+				? createDirtyInstance( dimensions, entitiesPerPixel, LONG )
+				: createInstance( dimensions, entitiesPerPixel, LONG );
 	}
 
 	@Override
-	public DiskCachedCellImg< T, FloatArray > createFloatInstance( final long[] dimensions, final Fraction entitiesPerPixel )
+	public DiskCachedCellImg< T, ? extends FloatAccess > createFloatInstance( final long[] dimensions, final Fraction entitiesPerPixel )
 	{
-		return createInstance( new FloatArray( 1 ), dimensions, entitiesPerPixel, FLOAT );
+		return dirtyAccesses
+				? createDirtyInstance( dimensions, entitiesPerPixel, FLOAT )
+				: createInstance( dimensions, entitiesPerPixel, FLOAT );
 	}
 
 	@Override
-	public DiskCachedCellImg< T, DoubleArray > createDoubleInstance( final long[] dimensions, final Fraction entitiesPerPixel )
+	public DiskCachedCellImg< T, ? extends DoubleAccess > createDoubleInstance( final long[] dimensions, final Fraction entitiesPerPixel )
 	{
-		return createInstance( new DoubleArray( 1 ), dimensions, entitiesPerPixel, DOUBLE );
+		return dirtyAccesses
+				? createDirtyInstance( dimensions, entitiesPerPixel, DOUBLE )
+				: createInstance( dimensions, entitiesPerPixel, DOUBLE );
 	}
 
 	@SuppressWarnings( { "unchecked", "rawtypes" } )
@@ -151,38 +176,60 @@ public class DiskCachedCellImgFactory< T extends NativeType< T > > extends Nativ
 
 	private < A extends ArrayDataAccess< A > >
 			DiskCachedCellImg< T, A >
-			createInstance( final A creator, final long[] dimensions, final Fraction entitiesPerPixel, final PrimitiveType primitiveType )
+			createInstance( final long[] dimensions, final Fraction entitiesPerPixel, final PrimitiveType primitiveType )
+	{
+		final CellGrid grid = createCellGrid( dimensions, entitiesPerPixel );
+		final Path blockcache = createBlockCachePath();
+		final DiskCellCache< A > diskcache = new DiskCellCache< A >(
+				blockcache,
+				grid,
+				EmptyCellCacheLoader.get( grid, entitiesPerPixel, primitiveType ),
+				AccessIo.get( primitiveType ),
+				entitiesPerPixel );
+		return createCellImg( diskcache, grid, entitiesPerPixel );
+	}
+	private < A extends ArrayDataAccess< A > & Dirty >
+			DiskCachedCellImg< T, A >
+			createDirtyInstance( final long[] dimensions, final Fraction entitiesPerPixel, final PrimitiveType primitiveType )
+	{
+		final CellGrid grid = createCellGrid( dimensions, entitiesPerPixel );
+		final Path blockcache = createBlockCachePath();
+		final DiskCellCache< A > diskcache = new DirtyDiskCellCache< A >(
+				blockcache,
+				grid,
+				EmptyCellCacheLoader.get( grid, entitiesPerPixel, primitiveType, DIRTY ),
+				AccessIo.get( primitiveType, DIRTY ),
+				entitiesPerPixel );
+		return createCellImg( diskcache, grid, entitiesPerPixel );
+	}
+
+	private CellGrid createCellGrid( final long[] dimensions, final Fraction entitiesPerPixel )
 	{
 		CellImgFactory.verifyDimensions( dimensions );
-
 		final int n = dimensions.length;
 		final int[] cellDimensions = CellImgFactory.getCellDimensions( defaultCellDimensions, n, entitiesPerPixel );
-		final CellGrid grid = new CellGrid( dimensions, cellDimensions );
+		return new CellGrid( dimensions, cellDimensions );
+	}
 
-		Path blockcache;
+	private Path createBlockCachePath()
+	{
 		try
 		{
-			blockcache = DiskCellCache.createTempDirectory( "CellImg", true );
+			return DiskCellCache.createTempDirectory( "CellImg", true );
 		}
 		catch ( final IOException e )
 		{
 			throw new RuntimeException( e );
 		}
+	}
 
-		final DiskCellCache< A > diskcache = new DiskCellCache< A >(
-				blockcache,
-				grid,
-				EmptyCellCacheLoader.get( grid, entitiesPerPixel, primitiveType ), // TODO: flags?
-				AccessIo.get( primitiveType ), // TODO: flags?
-				entitiesPerPixel );
-
+	private < A > DiskCachedCellImg< T, A > createCellImg( final DiskCellCache< A > diskcache, final CellGrid grid, final Fraction entitiesPerPixel )
+	{
 		final IoSync< Long, Cell< A > > iosync = new IoSync<>( diskcache );
-
 		final UncheckedLoadingCache< Long, Cell< A > > cache = new SoftRefListenableCache< Long, Cell< A > >()
 				.withRemovalListener( iosync )
 				.withLoader( iosync )
 				.unchecked();
-
 		return new DiskCachedCellImg<>( this, grid, entitiesPerPixel, cache::get );
 	}
 }
