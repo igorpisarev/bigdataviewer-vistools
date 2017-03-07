@@ -1,5 +1,7 @@
 package bdv.writecache.diskcached;
 
+import static net.imglib2.cache.img.DiskCachedCellImgOptions.options;
+
 import java.io.IOException;
 
 import org.scijava.ui.behaviour.DragBehaviour;
@@ -26,10 +28,10 @@ public class Playground
 	{
 		System.setProperty( "apple.laf.useScreenMenuBar", "true" );
 
-		final Img< ARGBType > img = new DiskCachedCellImgFactory< ARGBType >( 32 ).create( new long[] { 640,  640, 640 }, new ARGBType() );
+		final Img< ARGBType > img = new DiskCachedCellImgFactory< ARGBType >( options().cellDimensions( 64 ) ).create( new long[] { 100000, 100000, 100000 }, new ARGBType() );
 
 		// Hack: add and remove dummy source to avoid that the initial transform shows a full slice.
-		final BdvStackSource< ARGBType > dummy = BdvFunctions.show( ArrayImgs.argbs( 10, 10, 10 ), "Dummy" );
+		final BdvStackSource< ARGBType > dummy = BdvFunctions.show( ArrayImgs.argbs( 100, 100, 1 ), "Dummy" );
 		final Bdv bdv = BdvFunctions.show( img, "Cached", Bdv.options().addTo( dummy ) );
 		dummy.removeFromBdv();
 
