@@ -22,11 +22,11 @@ import net.imglib2.algorithm.neighborhood.HyperSphereShape;
 import net.imglib2.algorithm.neighborhood.Neighborhood;
 import net.imglib2.cache.CacheLoader;
 import net.imglib2.cache.IoSync;
-import net.imglib2.cache.UncheckedLoadingCache;
+import net.imglib2.cache.UncheckedCache;
 import net.imglib2.cache.img.AccessIo;
 import net.imglib2.cache.img.DirtyDiskCellCache;
 import net.imglib2.cache.img.DiskCellCache;
-import net.imglib2.cache.ref.GuardedStrongRefListenableCache;
+import net.imglib2.cache.ref.GuardedStrongRefLoaderRemoverCache;
 import net.imglib2.img.Img;
 import net.imglib2.img.array.ArrayImgs;
 import net.imglib2.img.basictypeaccess.array.DirtyIntArray;
@@ -104,8 +104,8 @@ public class Playground
 				AccessIo.get( INT, DIRTY ),
 				entitiesPerPixel );
 		final IoSync< Long, Cell< DirtyIntArray > > iosync = new IoSync<>( diskcache );
-		final UncheckedLoadingCache< Long, Cell< DirtyIntArray > > cache = new GuardedStrongRefListenableCache< Long, Cell< DirtyIntArray > >( 1000 )
-				.withRemovalListener( iosync )
+		final UncheckedCache< Long, Cell< DirtyIntArray > > cache = new GuardedStrongRefLoaderRemoverCache< Long, Cell< DirtyIntArray > >( 1000 )
+				.withRemover( iosync )
 				.withLoader( iosync )
 				.unchecked();
 		final Img< ARGBType > img = new LazyCellImg<>( grid, new ARGBType(), cache::get );
