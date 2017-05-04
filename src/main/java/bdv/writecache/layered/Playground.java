@@ -11,18 +11,19 @@ import org.scijava.ui.behaviour.DragBehaviour;
 import org.scijava.ui.behaviour.io.InputTriggerConfig;
 import org.scijava.ui.behaviour.util.Behaviours;
 
+import bdv.img.cache.CreateInvalidVolatileCell;
 import bdv.img.cache.VolatileCachedCellImg;
 import bdv.img.openconnectome.OpenConnectomeImageLoader;
 import bdv.img.openconnectome.OpenConnectomeTokenInfo;
 import bdv.img.openconnectome.OpenConnectomeVolatileArrayLoader;
 import bdv.util.Bdv;
 import bdv.util.BdvFunctions;
-import bdv.util.BdvStackSource;
 import bdv.viewer.ViewerPanel;
 import net.imglib2.RandomAccess;
 import net.imglib2.algorithm.neighborhood.HyperSphereShape;
 import net.imglib2.algorithm.neighborhood.Neighborhood;
-import net.imglib2.cache.LoaderCache;
+import net.imglib2.cache.Cache;
+import net.imglib2.cache.CacheLoader;
 import net.imglib2.cache.IoSync;
 import net.imglib2.cache.LoaderRemoverCache;
 import net.imglib2.cache.img.AccessIo;
@@ -31,13 +32,12 @@ import net.imglib2.cache.img.DiskCellCache;
 import net.imglib2.cache.queue.BlockingFetchQueues;
 import net.imglib2.cache.queue.FetcherThreads;
 import net.imglib2.cache.ref.SoftRefLoaderRemoverCache;
-import net.imglib2.cache.ref.WeakRefVolatileLoaderCache;
+import net.imglib2.cache.ref.WeakRefVolatileCache;
 import net.imglib2.cache.volatiles.CacheHints;
+import net.imglib2.cache.volatiles.CreateInvalid;
 import net.imglib2.cache.volatiles.LoadingStrategy;
-import net.imglib2.cache.volatiles.VolatileLoaderCache;
-import net.imglib2.cache.volatiles.VolatileCacheLoader;
+import net.imglib2.cache.volatiles.VolatileCache;
 import net.imglib2.img.Img;
-import net.imglib2.img.array.ArrayImgs;
 import net.imglib2.img.basictypeaccess.volatiles.array.DirtyVolatileByteArray;
 import net.imglib2.img.basictypeaccess.volatiles.array.VolatileByteArray;
 import net.imglib2.img.cell.Cell;
@@ -45,8 +45,8 @@ import net.imglib2.img.cell.CellGrid;
 import net.imglib2.img.cell.LazyCellImg;
 import net.imglib2.position.transform.Round;
 import net.imglib2.realtransform.AffineTransform3D;
-import net.imglib2.type.numeric.ARGBType;
 import net.imglib2.type.numeric.integer.UnsignedByteType;
+import net.imglib2.type.volatiles.VolatileUnsignedByteType;
 import net.imglib2.view.Views;
 
 public class Playground
@@ -101,6 +101,7 @@ public class Playground
 
 
 		final UnsignedByteType type = new UnsignedByteType();
+		final VolatileUnsignedByteType vtype = new VolatileUnsignedByteType();
 
 		final int level = 4;
 
@@ -109,7 +110,7 @@ public class Playground
 
 		final CellGrid grid = new CellGrid( dimensions, cellDimensions );
 
-		final VolatileCacheLoader< Long, Cell< DirtyVolatileByteArray > > backingLoader = new VolatileCacheLoader< Long, Cell< DirtyVolatileByteArray > >()
+		final CacheLoader< Long, Cell< DirtyVolatileByteArray > > backingLoader = new CacheLoader< Long, Cell< DirtyVolatileByteArray > >()
 		{
 			@Override
 			public Cell< DirtyVolatileByteArray > get( final Long key ) throws Exception
@@ -124,24 +125,7 @@ public class Playground
 						wrapDirty(
 								oc.loader.loadArray( 0, 0, level, cellDims, cellMin ) ) );
 			}
-
-			@Override
-			public Cell< DirtyVolatileByteArray > createInvalid( final Long key ) throws Exception
-			{
-				final int n = grid.numDimensions();
-				final long[] cellMin = new long[ n ];
-				final int[] cellDims = new int[ n ];
-				grid.getCellDimensions( key, cellMin, cellDims );
-				return new Cell<>(
-						cellDims,
-						cellMin,
-						wrapDirty(
-								oc.loader.emptyArray( cellDims ) ) );
-			}
 		};
-
-
-
 
 		final Path blockcache = DiskCellCache.createTempDirectory( "CellImg", true );
 		final DiskCellCache< DirtyVolatileByteArray > diskcache = new DirtyDiskCellCache<>(
@@ -152,52 +136,41 @@ public class Playground
 				type.getEntitiesPerPixel() );
 		final IoSync< Long, Cell< DirtyVolatileByteArray > > iosync = new IoSync<>( diskcache );
 		final LoaderRemoverCache< Long, Cell< DirtyVolatileByteArray > > listenableCache = new SoftRefLoaderRemoverCache<>();
-		final LoaderCache< Long, Cell< DirtyVolatileByteArray > > cache = listenableCache.withRemover( iosync );
+		final Cache< Long, Cell< DirtyVolatileByteArray > > cache = listenableCache.withLoader( iosync ).withRemover( iosync );
 
-		final Img< UnsignedByteType > img = new LazyCellImg<>( grid, type,
-				cache.withLoader( iosync ).unchecked()::get );
+		final Img< UnsignedByteType > img = new LazyCellImg<>( grid, type, cache.unchecked()::get );
 
 		final int maxNumLevels = 1;
 		final int numFetcherThreads = 10;
 		final BlockingFetchQueues< Callable< ? > > queue = new BlockingFetchQueues<>( maxNumLevels );
 		new FetcherThreads( queue, numFetcherThreads );
 
-		final VolatileLoaderCache< Long, Cell< DirtyVolatileByteArray > > volatileCache = new WeakRefVolatileLoaderCache<>( cache, queue );
+		final CreateInvalid< Long, Cell< DirtyVolatileByteArray > > createInvalid = CreateInvalidVolatileCell.get( grid, type, DIRTY );
+		final VolatileCache< Long, Cell< DirtyVolatileByteArray > > volatileCache = new WeakRefVolatileCache<>( cache, queue, createInvalid );
 
-		final CacheHints hints = new CacheHints( LoadingStrategy.DONTLOAD, 0, false );
-		final VolatileCachedCellImg< UnsignedByteType, ? > volatileImg = new VolatileCachedCellImg<>( grid, type, hints,
-				volatileCache.withLoader( new VolatileCacheLoader< Long, Cell< DirtyVolatileByteArray > >()
-				{
-					@Override
-					public Cell< DirtyVolatileByteArray > get( final Long key ) throws Exception
-					{
-						return iosync.get( key );
-					}
-
-					@Override
-					public Cell< DirtyVolatileByteArray > createInvalid( final Long key ) throws Exception
-					{
-						return backingLoader.createInvalid( key );
-					}
-				} ).unchecked()::get );
+		final CacheHints hints = new CacheHints( LoadingStrategy.VOLATILE, 0, false );
+		final VolatileCachedCellImg< VolatileUnsignedByteType, ? > volatileImg = new VolatileCachedCellImg<>( grid, vtype, hints, volatileCache.unchecked()::get );
 
 
 
 		// Hack: add and remove dummy source to avoid that the initial transform shows a full slice.
-		final BdvStackSource< ARGBType > dummy = BdvFunctions.show( ArrayImgs.argbs( 100, 100, 1 ), "Dummy" );
-		final Bdv bdv = BdvFunctions.show( volatileImg, "Cached", Bdv.options().addTo( dummy ) );
-		dummy.removeFromBdv();
+		final Bdv bdv = BdvFunctions.show( volatileImg, "Cached" );
+		final AffineTransform3D t = new AffineTransform3D();
+		t.set( 2.8226839209736334, 0.0, 0.0, -10917.749851665443, 0.0, 2.8226839209736334, 0.0, -10185.12559948522, 0.0, 0.0, 2.8226839209736334, -873.6206735413396 );
+		bdv.getBdvHandle().getViewerPanel().setCurrentViewerTransform( t );
 
 		final Behaviours behaviours = new Behaviours( new InputTriggerConfig() );
 		behaviours.install( bdv.getBdvHandle().getTriggerbindings(), "paint" );
 
 		behaviours.behaviour( new DragBehaviour()
 		{
+			final ViewerPanel viewer = bdv.getBdvHandle().getViewerPanel();
+			final RandomAccess< Neighborhood< UnsignedByteType > > sphere = new HyperSphereShape( 10 ).neighborhoodsRandomAccessible( Views.extendZero( img ) ).randomAccess();
+			final Round< ? > rsphere = new Round<>( sphere );
+
 			void draw( final int x, final int y )
 			{
-				final ViewerPanel viewer = bdv.getBdvHandle().getViewerPanel();
-				final RandomAccess< Neighborhood< UnsignedByteType > > sphere = new HyperSphereShape( 10 ).neighborhoodsRandomAccessible( Views.extendZero( img ) ).randomAccess();
-				viewer.displayToGlobalCoordinates( x, y, new Round<>( sphere ) );
+				viewer.displayToGlobalCoordinates( x, y, rsphere );
 				sphere.get().forEach( t -> t.set( 0xff ) );
 				viewer.requestRepaint();
 			}
@@ -218,6 +191,5 @@ public class Playground
 				draw( x, y );
 			}
 		}, "paint", "D" );
-
 	}
 }
