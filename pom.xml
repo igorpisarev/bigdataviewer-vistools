@@ -27,7 +27,7 @@
 		<dependency>
 			<groupId>net.imglib2</groupId>
 			<artifactId>imglib2</artifactId>
-			<version>3.3.1-SNAPSHOT</version>
+			<version>4.1.0-SNAPSHOT</version>
 		</dependency>
 		<dependency>
 			<groupId>net.imglib2</groupId>
@@ -84,6 +84,23 @@
 	</licenses>
 	<build>
 		<plugins>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-assembly-plugin</artifactId>
+					<configuration>
+							<descriptorRefs>
+							<descriptorRef>jar-with-dependencies</descriptorRef>
+					</descriptorRefs>
+					</configuration>
+					<executions>
+							<execution>
+									<phase>package</phase>
+									<goals>
+											<goal>single</goal>
+									</goals>
+							</execution>
+					</executions>
+			</plugin>
 			<plugin>
 				<groupId>org.codehaus.mojo</groupId>
 				<artifactId>license-maven-plugin</artifactId>
