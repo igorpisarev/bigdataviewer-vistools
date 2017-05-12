@@ -102,8 +102,6 @@ public class OpenConnectomeCellLoader implements CellLoader< UnsignedByteType >
 		url.append( cell.max( 2 ) + zMin + 1 );
 		url.append( mode );
 
-		System.out.println( url );
-
 		@SuppressWarnings( "rawtypes" )
 		final byte[] data = ( byte[] ) ( (ArrayDataAccess) ( ( NativeImg ) cell ).update( null ) ).getCurrentStorageArray();
 
