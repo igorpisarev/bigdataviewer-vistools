@@ -10,20 +10,15 @@ import bdv.img.openconnectome.OpenConnectomeImageLoader;
 import bdv.img.openconnectome.OpenConnectomeTokenInfo;
 import bdv.util.Bdv;
 import bdv.util.BdvFunctions;
-import bdv.util.BdvStackSource;
+import bdv.util.volatiles.VolatileViews;
 import bdv.viewer.ViewerPanel;
 import net.imglib2.RandomAccess;
-import net.imglib2.RandomAccessibleInterval;
-import net.imglib2.Volatile;
 import net.imglib2.algorithm.neighborhood.HyperSphereShape;
 import net.imglib2.algorithm.neighborhood.Neighborhood;
 import net.imglib2.cache.img.DiskCachedCellImgFactory;
 import net.imglib2.cache.img.DiskCachedCellImgOptions;
 import net.imglib2.img.Img;
-import net.imglib2.img.array.ArrayImgs;
 import net.imglib2.position.transform.Round;
-import net.imglib2.realtransform.AffineTransform3D;
-import net.imglib2.type.numeric.ARGBType;
 import net.imglib2.type.numeric.integer.UnsignedByteType;
 import net.imglib2.view.Views;
 
@@ -49,16 +44,16 @@ public class Playground
 						.dirtyAccesses( false ) );
 		final Img< UnsignedByteType > img = factory.create( dimensions, new UnsignedByteType(), new OpenConnectomeCellLoader( baseUrl, token, mode, zMin, level ) );
 
-		final RandomAccessibleInterval< ? extends Volatile< UnsignedByteType > > vimg = VolatileViews.figure_it_out( img );
-
 		// Hack: add and remove dummy source to avoid that the initial transform shows a full slice.
-		final BdvStackSource< ARGBType > dummy = BdvFunctions.show( ArrayImgs.argbs( 100, 100, 1 ), "Dummy" );
-		final AffineTransform3D t = new AffineTransform3D();
-		t.set( 2.8226839209736334, 0.0, 0.0, -10917.749851665443, 0.0, 2.8226839209736334, 0.0, -10185.12559948522, 0.0, 0.0, 2.8226839209736334, -873.6206735413396 );
-		dummy.getBdvHandle().getViewerPanel().setCurrentViewerTransform( t );
+//		final BdvStackSource< ARGBType > dummy = BdvFunctions.show( ArrayImgs.argbs( 100, 100, 1 ), "Dummy" );
+//		final AffineTransform3D t = new AffineTransform3D();
+//		t.set( 2.8226839209736334, 0.0, 0.0, -10917.749851665443, 0.0, 2.8226839209736334, 0.0, -10185.12559948522, 0.0, 0.0, 2.8226839209736334, -873.6206735413396 );
+//		dummy.getBdvHandle().getViewerPanel().setCurrentViewerTransform( t );
+//
+//		final Bdv bdv = BdvFunctions.show( VolatileViews.wrapAsVolatile( img ), "Cached", Bdv.options().addTo( dummy ) );
+//		dummy.removeFromBdv();
 
-		final Bdv bdv = BdvFunctions.show( vimg, "Cached", Bdv.options().addTo( dummy ) );
-		dummy.removeFromBdv();
+		final Bdv bdv = BdvFunctions.show( VolatileViews.wrapAsVolatile( img ), "Cached" );
 
 		final Behaviours behaviours = new Behaviours( new InputTriggerConfig() );
 		behaviours.install( bdv.getBdvHandle().getTriggerbindings(), "paint" );
