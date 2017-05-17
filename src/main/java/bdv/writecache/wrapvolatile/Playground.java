@@ -10,9 +10,12 @@ import bdv.img.openconnectome.OpenConnectomeImageLoader;
 import bdv.img.openconnectome.OpenConnectomeTokenInfo;
 import bdv.util.Bdv;
 import bdv.util.BdvFunctions;
+import bdv.util.BdvOptions;
+import bdv.util.volatiles.SharedQueue;
 import bdv.util.volatiles.VolatileViews;
 import bdv.viewer.ViewerPanel;
 import net.imglib2.RandomAccess;
+import net.imglib2.RandomAccessibleInterval;
 import net.imglib2.algorithm.neighborhood.HyperSphereShape;
 import net.imglib2.algorithm.neighborhood.Neighborhood;
 import net.imglib2.cache.img.DiskCachedCellImgFactory;
@@ -20,6 +23,7 @@ import net.imglib2.cache.img.DiskCachedCellImgOptions;
 import net.imglib2.img.Img;
 import net.imglib2.position.transform.Round;
 import net.imglib2.type.numeric.integer.UnsignedByteType;
+import net.imglib2.util.Util;
 import net.imglib2.view.Views;
 
 public class Playground
@@ -44,6 +48,8 @@ public class Playground
 						.dirtyAccesses( false ) );
 		final Img< UnsignedByteType > img = factory.create( dimensions, new UnsignedByteType(), new OpenConnectomeCellLoader( baseUrl, token, mode, zMin, level ) );
 
+		System.out.println( Util.printInterval( img ) );
+
 		// Hack: add and remove dummy source to avoid that the initial transform shows a full slice.
 //		final BdvStackSource< ARGBType > dummy = BdvFunctions.show( ArrayImgs.argbs( 100, 100, 1 ), "Dummy" );
 //		final AffineTransform3D t = new AffineTransform3D();
@@ -53,7 +59,26 @@ public class Playground
 //		final Bdv bdv = BdvFunctions.show( VolatileViews.wrapAsVolatile( img ), "Cached", Bdv.options().addTo( dummy ) );
 //		dummy.removeFromBdv();
 
-		final Bdv bdv = BdvFunctions.show( VolatileViews.wrapAsVolatile( img ), "Cached" );
+
+
+
+//		final Bdv bdv = BdvFunctions.show( VolatileViews.wrapAsVolatile( img ), "Cached" );
+
+
+		final RandomAccessibleInterval< UnsignedByteType > slice = Views.hyperSlice( img, 2, 100 );
+//		VolatileViews.wrapAsVolatile( slice );
+//
+//		final BdvStackSource< ARGBType > dummy = BdvFunctions.show( ArrayImgs.argbs( 100, 100 ), "Dummy", BdvOptions.options().is2D() );
+//		final AffineTransform3D t = new AffineTransform3D();
+//		t.set( 6.060606060606057, 0.0, 0.0, -8113.178761887199, 0.0, 6.060606060606057, 0.0, -8849.236585612749, 0.0, 0.0, 6.0606060606060606, 0.0 );
+//		dummy.getBdvHandle().getViewerPanel().setCurrentViewerTransform( t );
+//
+//		final Bdv bdv = BdvFunctions.show( slice, "slice", Bdv.options().addTo( dummy ) );
+//		dummy.removeFromBdv();
+
+		final SharedQueue queue = new SharedQueue( 1, 32 );
+		final Bdv bdv = BdvFunctions.show( VolatileViews.wrapAsVolatile( slice, queue ), "Cached", BdvOptions.options().is2D() );
+
 
 		final Behaviours behaviours = new Behaviours( new InputTriggerConfig() );
 		behaviours.install( bdv.getBdvHandle().getTriggerbindings(), "paint" );
